@@ -1,0 +1,4 @@
+# Store text files with LF in the repo; check PowerShell scripts out with
+# Windows (CRLF) line endings no matter how a contributor's git is set up.
+* text=auto
+*.ps1 text eol=crlf
