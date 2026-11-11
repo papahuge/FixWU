@@ -1,9 +1,48 @@
+<#PSScriptInfo
+
+.VERSION 1.1.1
+
+.GUID e80e227b-68fc-4317-bb35-4d0c05ab2aac
+
+.AUTHOR papahuge
+
+.COMPANYNAME
+
+.COPYRIGHT (c) 2026 papahuge. Released under the MIT License.
+
+.TAGS WindowsUpdate Windows Update Reset Repair Troubleshooting BITS SoftwareDistribution PSEdition_Desktop PSEdition_Core
+
+.LICENSEURI https://github.com/papahuge/FixWU/blob/main/LICENSE
+
+.PROJECTURI https://github.com/papahuge/FixWU
+
+.ICONURI
+
+.EXTERNALMODULEDEPENDENCIES
+
+.REQUIREDSCRIPTS
+
+.EXTERNALSCRIPTDEPENDENCIES
+
+.RELEASENOTES
+1.1.1: First PowerShell Gallery release (adds Gallery metadata).
+Full history: https://github.com/papahuge/FixWU/releases
+
+.PRIVATEDATA
+
+#>
+
 #Requires -RunAsAdministrator
+
 <#
 .SYNOPSIS
     FixWU - resets a stuck Windows Update download queue.
 
 .DESCRIPTION
+    Safely resets a stuck Windows Update download queue. It checks for problems
+    a reset can't fix, backs up the update caches instead of deleting them, and
+    tells you what actually worked.
+
     1. Checks for causes a cache reset can't fix (pending reboot, disabled
        service, WSUS / blocking policy, paused updates) and reports them.
     2. Clears the BITS and Delivery Optimization download queues.
@@ -45,6 +84,10 @@
     powershell -ExecutionPolicy Bypass -File .\FixWU.ps1
     Runs the script directly from an admin terminal.
 #>
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingWriteHost', '',
+    Justification = 'Interactive console tool: the colored status lines are its whole UI.')]
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+    Justification = 'The reset deliberately refuses -WhatIf: bitsadmin/netsh cannot do a dry run.')]
 [CmdletBinding(SupportsShouldProcess, DefaultParameterSetName = 'Reset')]
 param(
     [Parameter(ParameterSetName = 'Reset')]
@@ -113,7 +156,7 @@ function Close-Log {
     icacls.exe $logPath /grant "*${me}:(R)" 2>$null | Out-Null
 }
 
-function Stop-UpdateServices {
+function Stop-UpdateService {
     foreach ($name in $services) {
         $svc = Get-Service -Name $name -ErrorAction SilentlyContinue
         if (-not $svc -or $svc.Status -eq 'Stopped') { continue }
@@ -163,7 +206,7 @@ function Format-Size([double]$Bytes) {
 
 # Finds SoftwareDistribution.old / catroot2.old, plus any date-stamped
 # .old-<time> copies made when an old backup couldn't be replaced.
-function Get-OldBackups {
+function Get-OldBackup {
     foreach ($folder in $cacheFolders) {
         Get-ChildItem -LiteralPath (Split-Path $folder -Parent) -Directory -Force `
                       -Filter "$(Split-Path $folder -Leaf).old*" -ErrorAction SilentlyContinue
@@ -175,7 +218,7 @@ function Get-OldBackups {
 function Invoke-Cleanup {
     [CmdletBinding(SupportsShouldProcess)]
     param()
-    $backups = @(Get-OldBackups)
+    $backups = @(Get-OldBackup)
     if ($backups.Count -eq 0) {
         Write-Host "  No .old backups found - nothing to clean up." -ForegroundColor $Theme.Good
         return
@@ -310,7 +353,7 @@ for ($attempt = 1; $attempt -le 3 -and $remaining.Count -gt 0; $attempt++) {
         Write-Host "  Something grabbed a file - stopping services again (attempt $attempt of 3)..."
         Start-Sleep -Seconds 5
     }
-    Stop-UpdateServices
+    Stop-UpdateService
     $remaining = @($remaining | Where-Object { -not (Move-Aside $_) })
 }
 foreach ($folder in $remaining) {
@@ -379,7 +422,7 @@ Write-Host "  - Open Settings > Windows Update and click 'Check for updates'."
 Write-Host "    The first check after a reset rebuilds everything, so give it a few"
 Write-Host "    minutes. If Settings sits on 'Checking for updates...', close it and"
 Write-Host "    reopen it: the check has usually finished in the background already."
-$backups = @(Get-OldBackups)
+$backups = @(Get-OldBackup)
 if ($backups.Count) {
     $backupSize = 0
     foreach ($b in $backups) { $backupSize += Get-FolderSize $b.FullName }

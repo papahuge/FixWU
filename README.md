@@ -1,5 +1,7 @@
 # FixWU
 
+[![PowerShell Gallery](https://img.shields.io/powershellgallery/v/FixWU?label=PowerShell%20Gallery)](https://www.powershellgallery.com/packages/FixWU)
+
 Resets a stuck Windows Update queue, for when updates hang at 0% or won't download.
 
 FixWU checks that each step actually worked, tells you about problems a reset
@@ -13,6 +15,21 @@ is lost.
 - Administrator rights
 
 ## Install
+
+### Option 1: PowerShell Gallery (easiest)
+
+```powershell
+Install-PSResource FixWU -Scope CurrentUser    # PowerShell 7.4 or newer
+Install-Script FixWU -Scope CurrentUser        # Windows PowerShell 5.1
+```
+
+Files installed from the Gallery aren't tagged as "from the internet", so there's
+nothing to unblock. From an admin window, run `FixWU.ps1`. If it isn't found, its
+Scripts folder isn't on your PATH yet: `Get-InstalledPSResource FixWU` (or
+`Get-InstalledScript FixWU` in 5.1) shows where it went. Get new versions with
+`Update-PSResource FixWU` (or `Update-Script FixWU`).
+
+### Option 2: Download from GitHub
 
 1. Download [**FixWU.ps1**](https://github.com/papahuge/FixWU/releases/latest/download/FixWU.ps1)
    from the [latest release](https://github.com/papahuge/FixWU/releases/latest).
