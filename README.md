@@ -111,7 +111,10 @@ FixWU -ResetNetwork    # also reset the WinHTTP proxy and Winsock (needs a reboo
 
 ## After running
 
-- Open **Settings > Windows Update** and click **Check for updates**.
+- Open **Settings > Windows Update** and click **Check for updates**. The first
+  check after a reset rebuilds everything from scratch, so give it a few minutes.
+  If Settings sits on *Checking for updates...*, close it and reopen it: the
+  check has usually finished in the background already.
 - **Update history** will look empty. Your updates are still installed; the old
   history lives in `SoftwareDistribution.old`.
 - Once updates work, delete `C:\Windows\SoftwareDistribution.old` and

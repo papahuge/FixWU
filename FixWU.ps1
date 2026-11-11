@@ -71,6 +71,15 @@ $cacheFolders = @(
 
 function Write-Step([string]$Text) { Write-Host "`n$Text" -ForegroundColor $Theme.Step }
 
+# Stops the log, then makes sure you can open it from a normal window. Files
+# created from an admin window can end up readable only by admins, depending
+# on the folder's permissions.
+function Close-Log {
+    Stop-Transcript | Out-Null
+    $me = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+    icacls.exe $logPath /grant "*${me}:(R)" 2>$null | Out-Null
+}
+
 function Stop-UpdateServices {
     foreach ($name in $services) {
         $svc = Get-Service -Name $name -ErrorAction SilentlyContinue
@@ -124,7 +133,7 @@ if ($rebootKeys | Where-Object { Test-Path $_ }) {
         Write-Warning "Reboot first and try Windows Update again - that alone often unsticks it."
         Write-Warning "Wiping the update cache now could confuse the half-finished install."
         Write-Warning "(Run with -IgnorePendingReboot to reset anyway.)"
-        Stop-Transcript | Out-Null
+        Close-Log
         exit 1
     }
     $cantFix.Add("A reboot was already pending when this ran - reboot before checking for updates.")
@@ -179,7 +188,9 @@ if ($LASTEXITCODE -eq 0) {
 
 if (Get-Command Delete-DeliveryOptimizationCache -ErrorAction SilentlyContinue) {
     try {
-        Delete-DeliveryOptimizationCache -Force -ErrorAction Stop | Out-Null
+        # This cmdlet prints its own "Deleting..." lines with Write-Host, which
+        # goes to the information stream (6), not the output that Out-Null eats.
+        Delete-DeliveryOptimizationCache -Force -ErrorAction Stop 6>$null | Out-Null
         Write-Host "  Delivery Optimization cache cleared." -ForegroundColor $Theme.Good
     } catch {
         $failures.Add("Couldn't clear the Delivery Optimization cache: $($_.Exception.Message)")
@@ -226,7 +237,8 @@ Write-Step "[5/5] Restarting services..."
 foreach ($name in 'cryptsvc', 'bits', 'wuauserv', 'UsoSvc') {
     if ($wasRunning -notcontains $name) { continue }
     try {
-        Start-Service -Name $name -ErrorAction Stop
+        # -WarningAction hides the harmless "Waiting for service to start..." note
+        Start-Service -Name $name -ErrorAction Stop -WarningAction SilentlyContinue
         Write-Host "  Started $name" -ForegroundColor $Theme.Good
     } catch {
         $failures.Add("Couldn't restart ${name}: $($_.Exception.Message)")
@@ -263,9 +275,12 @@ if ($ResetNetwork) {
     Write-Host "  - Restart your PC (the Winsock reset needs it)."
 }
 Write-Host "  - Open Settings > Windows Update and click 'Check for updates'."
+Write-Host "    The first check after a reset rebuilds everything, so give it a few"
+Write-Host "    minutes. If Settings sits on 'Checking for updates...', close it and"
+Write-Host "    reopen it: the check has usually finished in the background already."
 Write-Host "  - Once updates work, delete SoftwareDistribution.old (in $env:SystemRoot)"
 Write-Host "    and catroot2.old (in $env:SystemRoot\System32) to get the space back."
 Write-Host "`n Log saved to: $logPath"
 Write-Host "==========================================" -ForegroundColor $Theme.Frame
-Stop-Transcript | Out-Null
+Close-Log
 if ($failures.Count) { exit 1 }
