@@ -1,0 +1,18 @@
+name: Feature request
+description: Suggest an idea or improvement for FixWU.
+title: "[Idea]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like FixWU to do?
+      placeholder: 'e.g. Also clear the Microsoft Store download cache.'
+    validations:
+      required: true
+
+  - type: textarea
+    id: why
+    attributes:
+      label: Why would it help?
+      description: What problem would it solve for you?

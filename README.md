@@ -14,7 +14,8 @@ is lost.
 
 ## Install
 
-1. Download `FixWU.ps1` (open it on GitHub and click **Download raw file**).
+1. Download [**FixWU.ps1**](https://github.com/papahuge/FixWU/releases/latest/download/FixWU.ps1)
+   from the [latest release](https://github.com/papahuge/FixWU/releases/latest).
 2. Save it somewhere permanent, for example `C:\Users\<you>\Tools\FixWU.ps1`.
 3. **Unblock it.** Don't skip this step:
 
@@ -143,6 +144,15 @@ updates does:
    e.g. pick tomorrow's date (or choose **Pause for 1 week**).
 2. Wait about 10 seconds, then click **Resume updates**.
 3. The stuck downloads should be gone. Click **Check for updates** to start fresh.
+
+## Reporting a problem
+
+Found a bug, or have an idea? [Open an issue](https://github.com/papahuge/FixWU/issues/new/choose)
+and pick **Bug report** or **Feature request**.
+
+For bugs, the form asks for your Windows and PowerShell versions and the FixWU
+log (its path is printed at the end of every run). The log contains your Windows
+user name and PC name, so swap those out before posting if you like.
 
 ## License
 
