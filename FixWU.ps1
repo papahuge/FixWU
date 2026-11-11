@@ -9,8 +9,11 @@
     2. Clears the BITS and Delivery Optimization download queues.
     3. Stops the update services, then renames SoftwareDistribution and
        catroot2 to *.old. Windows rebuilds both; the .old copies are your undo.
+       A backup left by an earlier run is replaced, so there's only ever one.
     4. (Optional) Resets the WinHTTP proxy and Winsock catalog.
     5. Restarts only the services that were running before.
+
+    Once updates work again, run it with -Cleanup to delete the .old backups.
 
 .PARAMETER ResetNetwork
     Also reset the WinHTTP proxy and Winsock catalog. Needs a reboot, and can
@@ -22,6 +25,10 @@
 .PARAMETER IgnorePendingReboot
     Run even if Windows is waiting on a reboot to finish installing updates.
 
+.PARAMETER Cleanup
+    Delete the .old backups left by earlier resets and report the space freed.
+    Doesn't run a reset. Add -WhatIf to preview, or -Confirm to approve each one.
+
 .EXAMPLE
     FixWU
     Runs the reset (via the FixWU shortcut in your PowerShell profile).
@@ -31,15 +38,35 @@
     Runs the reset, then repairs system files with DISM and SFC.
 
 .EXAMPLE
+    FixWU -Cleanup -WhatIf
+    Shows which .old backups -Cleanup would delete, without deleting anything.
+
+.EXAMPLE
     powershell -ExecutionPolicy Bypass -File .\FixWU.ps1
     Runs the script directly from an admin terminal.
 #>
-[CmdletBinding()]
+[CmdletBinding(SupportsShouldProcess, DefaultParameterSetName = 'Reset')]
 param(
+    [Parameter(ParameterSetName = 'Reset')]
     [switch]$ResetNetwork,
+
+    [Parameter(ParameterSetName = 'Reset')]
     [switch]$Repair,
-    [switch]$IgnorePendingReboot
+
+    [Parameter(ParameterSetName = 'Reset')]
+    [switch]$IgnorePendingReboot,
+
+    # Its own parameter set, so -Cleanup can't be mixed with the reset switches.
+    [Parameter(ParameterSetName = 'Cleanup', Mandatory)]
+    [switch]$Cleanup
 )
+
+# -WhatIf / -Confirm only work with -Cleanup. The reset calls tools such as
+# bitsadmin and netsh that can't "pretend", so a reset -WhatIf would be a lie.
+if (-not $Cleanup -and ($PSBoundParameters.ContainsKey('WhatIf') -or $PSBoundParameters.ContainsKey('Confirm'))) {
+    Write-Warning "-WhatIf and -Confirm only work together with -Cleanup."
+    exit 1
+}
 
 # Color theme: Blue / Teal / HotPink.
 # Write-Host only knows the 16 console colors, so Teal and HotPink use the
@@ -55,7 +82,10 @@ $Theme = @{
 $cantFix  = [System.Collections.Generic.List[string]]::new()   # causes a reset won't solve
 $failures = [System.Collections.Generic.List[string]]::new()   # steps that didn't work
 $logPath  = Join-Path $env:TEMP ("FixWU_{0:yyyyMMdd_HHmmss}.log" -f (Get-Date))
-Start-Transcript -Path $logPath | Out-Null
+# Always log for real, even in a -Cleanup -WhatIf / -Confirm preview. Setting
+# the preferences inside this block works on every PowerShell version (passing
+# -WhatIf:$false doesn't: some versions' transcript cmdlets lack the switch).
+& { $WhatIfPreference = $false; $ConfirmPreference = 'None'; Start-Transcript -Path $logPath | Out-Null }
 
 # UsoSvc (Update Orchestrator) is listed first so it gets stopped first:
 # left running, it can restart wuauserv behind our back mid-reset.
@@ -75,6 +105,9 @@ function Write-Step([string]$Text) { Write-Host "`n$Text" -ForegroundColor $Them
 # created from an admin window can end up readable only by admins, depending
 # on the folder's permissions.
 function Close-Log {
+    # In PowerShell 7, Stop-Transcript obeys -WhatIf: during a -Cleanup -WhatIf
+    # it would "pretend" to stop and leave the log running in your session.
+    $WhatIfPreference = $false; $ConfirmPreference = 'None'
     Stop-Transcript | Out-Null
     $me = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
     icacls.exe $logPath /grant "*${me}:(R)" 2>$null | Out-Null
@@ -98,7 +131,10 @@ function Move-Aside([string]$Path) {
     if (-not (Test-Path -LiteralPath $Path)) { return $true }
     $backup = "$Path.old"
     if (Test-Path -LiteralPath $backup) {
-        # Leftover from an earlier run - clear it so only one backup is kept.
+        # Leftover from an earlier run - replace it so only one backup is kept.
+        $old = Get-Item -LiteralPath $backup -Force
+        Write-Host ("  Replacing {0} from your last run ({1:MMM d, yyyy}, {2})" -f
+                    $old.Name, $old.LastWriteTime, (Format-Size (Get-FolderSize $backup)))
         Remove-Item -LiteralPath $backup -Recurse -Force -ErrorAction SilentlyContinue
         if (Test-Path -LiteralPath $backup) {
             $backup = "$Path.old-$(Get-Date -Format yyyyMMddHHmmss)"
@@ -114,9 +150,74 @@ function Move-Aside([string]$Path) {
     }
 }
 
+function Get-FolderSize([string]$Path) {
+    [double](Get-ChildItem -LiteralPath $Path -Recurse -File -Force -ErrorAction SilentlyContinue |
+             Measure-Object -Property Length -Sum).Sum
+}
+
+function Format-Size([double]$Bytes) {
+    if     ($Bytes -ge 1GB) { '{0:N1} GB' -f ($Bytes / 1GB) }
+    elseif ($Bytes -ge 1MB) { '{0:N0} MB' -f ($Bytes / 1MB) }
+    else                    { '{0:N0} KB' -f ($Bytes / 1KB) }
+}
+
+# Finds SoftwareDistribution.old / catroot2.old, plus any date-stamped
+# .old-<time> copies made when an old backup couldn't be replaced.
+function Get-OldBackups {
+    foreach ($folder in $cacheFolders) {
+        Get-ChildItem -LiteralPath (Split-Path $folder -Parent) -Directory -Force `
+                      -Filter "$(Split-Path $folder -Leaf).old*" -ErrorAction SilentlyContinue
+    }
+}
+
+# Deletes the .old backups. ShouldProcess gives it -WhatIf and -Confirm, and
+# it picks those up from the script when FixWU is run with them.
+function Invoke-Cleanup {
+    [CmdletBinding(SupportsShouldProcess)]
+    param()
+    $backups = @(Get-OldBackups)
+    if ($backups.Count -eq 0) {
+        Write-Host "  No .old backups found - nothing to clean up." -ForegroundColor $Theme.Good
+        return
+    }
+    $freed = 0
+    foreach ($b in $backups) {
+        $size = Get-FolderSize $b.FullName
+        if (-not $PSCmdlet.ShouldProcess($b.FullName, "Delete backup ($(Format-Size $size))")) { continue }
+        Remove-Item -LiteralPath $b.FullName -Recurse -Force -Confirm:$false -ErrorAction SilentlyContinue
+        if (Test-Path -LiteralPath $b.FullName) {
+            $failures.Add("Couldn't fully delete $($b.FullName) - some files are in use. Try again after a reboot.")
+        } else {
+            Write-Host "  Deleted $($b.Name) ($(Format-Size $size))" -ForegroundColor $Theme.Good
+            $freed += $size
+        }
+    }
+    if ($freed -gt 0) { Write-Host "  Freed $(Format-Size $freed)." -ForegroundColor $Theme.Good }
+}
+
 Write-Host "==========================================" -ForegroundColor $Theme.Frame
 Write-Host "       FixWU - Windows Update Reset       " -ForegroundColor $Theme.Frame
 Write-Host "==========================================" -ForegroundColor $Theme.Frame
+
+# ---------------------------------------------------------------------------
+# Cleanup mode: delete the .old backups from earlier resets, then stop.
+# ---------------------------------------------------------------------------
+if ($Cleanup) {
+    Write-Step "Deleting .old backups from earlier resets..."
+    Invoke-Cleanup
+    Write-Host "`n==========================================" -ForegroundColor $Theme.Frame
+    if ($failures.Count) {
+        foreach ($f in $failures) { Write-Host " - $f" -ForegroundColor $Theme.Bad }
+    } elseif ($WhatIfPreference) {
+        Write-Host " Preview only (-WhatIf): nothing was deleted." -ForegroundColor $Theme.Good
+    } else {
+        Write-Host " Cleanup complete." -ForegroundColor $Theme.Good
+    }
+    Write-Host "==========================================" -ForegroundColor $Theme.Frame
+    Close-Log
+    if ($failures.Count) { exit 1 }
+    exit 0
+}
 
 # ---------------------------------------------------------------------------
 # 1. Pre-flight: look for causes that clearing caches won't fix
@@ -278,8 +379,13 @@ Write-Host "  - Open Settings > Windows Update and click 'Check for updates'."
 Write-Host "    The first check after a reset rebuilds everything, so give it a few"
 Write-Host "    minutes. If Settings sits on 'Checking for updates...', close it and"
 Write-Host "    reopen it: the check has usually finished in the background already."
-Write-Host "  - Once updates work, delete SoftwareDistribution.old (in $env:SystemRoot)"
-Write-Host "    and catroot2.old (in $env:SystemRoot\System32) to get the space back."
+$backups = @(Get-OldBackups)
+if ($backups.Count) {
+    $backupSize = 0
+    foreach ($b in $backups) { $backupSize += Get-FolderSize $b.FullName }
+    Write-Host "  - Once updates work, run FixWU with -Cleanup to delete the .old backups"
+    Write-Host "    and get $(Format-Size $backupSize) back."
+}
 Write-Host "`n Log saved to: $logPath"
 Write-Host "==========================================" -ForegroundColor $Theme.Frame
 Close-Log

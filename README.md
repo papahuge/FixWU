@@ -52,6 +52,7 @@ system settings.
 | `-Repair`              | Runs DISM /RestoreHealth and SFC afterwards (10-30+ min). Use when updates download but won't install. |
 | `-ResetNetwork`        | Resets the WinHTTP proxy and Winsock catalog. Needs a reboot; can break VPN clients. |
 | `-IgnorePendingReboot` | Runs even if Windows is waiting on a reboot. Not recommended.            |
+| `-Cleanup`             | Deletes the `.old` backups from earlier resets and shows the space freed. Doesn't run a reset. Add `-WhatIf` to preview first. |
 
 ### Optional: a `FixWU` shortcut
 
@@ -61,7 +62,8 @@ the file doesn't exist, run `New-Item -ItemType File -Path $PROFILE -Force` firs
 ```powershell
 function FixWU
 {
-    param([switch]$Repair, [switch]$ResetNetwork, [switch]$IgnorePendingReboot)
+    param([switch]$Repair, [switch]$ResetNetwork, [switch]$IgnorePendingReboot,
+          [switch]$Cleanup, [switch]$WhatIf)
 
     $fixwu = "$HOME\Tools\FixWU.ps1"   # change this if you saved it elsewhere
     if (-not (Test-Path $fixwu)) {
@@ -91,6 +93,8 @@ isn't running as admin, FixWU opens an admin window for you (UAC prompt):
 FixWU                  # standard reset
 FixWU -Repair          # reset, then repair system files with DISM + SFC
 FixWU -ResetNetwork    # also reset the WinHTTP proxy and Winsock (needs a reboot)
+FixWU -Cleanup         # once updates work: delete the .old backups
+FixWU -Cleanup -WhatIf # preview what -Cleanup would delete
 ```
 
 > Your profile is itself a script. If new PowerShell windows show an error that
@@ -105,7 +109,8 @@ FixWU -ResetNetwork    # also reset the WinHTTP proxy and Winsock (needs a reboo
 2. **Clears the download queues:** BITS jobs and the Delivery Optimization cache.
 3. **Moves the update caches aside:** stops the update services and renames
    `SoftwareDistribution` and `catroot2` to `.old`. Windows rebuilds them fresh.
-   If Windows grabs a file mid-reset, it retries (up to 3 times).
+   If Windows grabs a file mid-reset, it retries (up to 3 times). A backup left
+   by an earlier run is replaced (and it tells you), so there's only ever one.
 4. **Restarts the services** that were running before.
 5. **Prints a summary** of what worked, what failed, and anything that still needs you.
 
@@ -113,13 +118,31 @@ FixWU -ResetNetwork    # also reset the WinHTTP proxy and Winsock (needs a reboo
 
 - Open **Settings > Windows Update** and click **Check for updates**. The first
   check after a reset rebuilds everything from scratch, so give it a few minutes.
-  If Settings sits on *Checking for updates...*, close it and reopen it: the
-  check has usually finished in the background already.
+  If Settings looks stuck, see [Troubleshooting](#troubleshooting).
 - **Update history** will look empty. Your updates are still installed; the old
   history lives in `SoftwareDistribution.old`.
-- Once updates work, delete `C:\Windows\SoftwareDistribution.old` and
-  `C:\Windows\System32\catroot2.old` to free up space.
+- Once updates work, run FixWU with **`-Cleanup`** to delete the `.old` backups
+  and get the space back. The summary tells you how much that is.
 - Each run saves a log to `%TEMP%\FixWU_<date>_<time>.log`.
+
+## Troubleshooting
+
+### Settings sits on "Checking for updates..."
+
+The check has usually finished in the background already; the Settings page just
+didn't get the result. Close Settings completely and reopen it. It can take two
+tries.
+
+### Settings still lists the old stuck downloads
+
+The Settings page shows what Windows Update's scheduler (the Update Orchestrator)
+thinks is queued, and resetting the cache doesn't always clear that. Pausing
+updates does:
+
+1. In **Settings > Windows Update**, pause updates. The shortest option is fine,
+   e.g. pick tomorrow's date (or choose **Pause for 1 week**).
+2. Wait about 10 seconds, then click **Resume updates**.
+3. The stuck downloads should be gone. Click **Check for updates** to start fresh.
 
 ## License
 
