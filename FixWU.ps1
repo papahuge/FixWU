@@ -22,7 +22,7 @@
 .PARAMETER Repair
     Also run DISM /RestoreHealth and SFC afterwards. Slow (10-30+ minutes).
 
-.PARAMETER IgnorePendingReboot
+.PARAMETER Force
     Run even if Windows is waiting on a reboot to finish installing updates.
 
 .PARAMETER Cleanup
@@ -54,7 +54,7 @@ param(
     [switch]$Repair,
 
     [Parameter(ParameterSetName = 'Reset')]
-    [switch]$IgnorePendingReboot,
+    [switch]$Force,
 
     # Its own parameter set, so -Cleanup can't be mixed with the reset switches.
     [Parameter(ParameterSetName = 'Cleanup', Mandatory)]
@@ -229,11 +229,11 @@ $rebootKeys = @(
     'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired'
 )
 if ($rebootKeys | Where-Object { Test-Path $_ }) {
-    if (-not $IgnorePendingReboot) {
+    if (-not $Force) {
         Write-Warning "Windows is waiting on a reboot to finish installing updates."
         Write-Warning "Reboot first and try Windows Update again - that alone often unsticks it."
         Write-Warning "Wiping the update cache now could confuse the half-finished install."
-        Write-Warning "(Run with -IgnorePendingReboot to reset anyway.)"
+        Write-Warning "(Run with -Force to reset anyway.)"
         Close-Log
         exit 1
     }

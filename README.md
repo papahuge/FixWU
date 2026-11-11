@@ -52,7 +52,7 @@ system settings.
 |------------------------|--------------------------------------------------------------------------|
 | `-Repair`              | Runs DISM /RestoreHealth and SFC afterwards (10-30+ min). Use when updates download but won't install. |
 | `-ResetNetwork`        | Resets the WinHTTP proxy and Winsock catalog. Needs a reboot; can break VPN clients. |
-| `-IgnorePendingReboot` | Runs even if Windows is waiting on a reboot. Not recommended.            |
+| `-Force`               | Runs even if Windows is waiting on a reboot. Not recommended.            |
 | `-Cleanup`             | Deletes the `.old` backups from earlier resets and shows the space freed. Doesn't run a reset. Add `-WhatIf` to preview first. |
 
 ### Optional: a `FixWU` shortcut
@@ -63,7 +63,7 @@ the file doesn't exist, run `New-Item -ItemType File -Path $PROFILE -Force` firs
 ```powershell
 function FixWU
 {
-    param([switch]$Repair, [switch]$ResetNetwork, [switch]$IgnorePendingReboot,
+    param([switch]$Repair, [switch]$ResetNetwork, [switch]$Force,
           [switch]$Cleanup, [switch]$WhatIf)
 
     $fixwu = "$HOME\Tools\FixWU.ps1"   # change this if you saved it elsewhere
